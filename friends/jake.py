@@ -68,23 +68,25 @@ def _rating_highs(stats: dict, state: dict) -> list[Accomplishment]:
         prev = prev_bests.get(tc)
         if prev is None or current_best > prev:
             new_bests[tc] = current_best
-            if prev is not None:
-                ts = datetime.fromtimestamp(best_block.get("date", 0), tz=_TZ)
-                results.append(Accomplishment(
-                    friend=_FRIEND,
-                    source=_SOURCE,
-                    type=f"new_{tc}_rating_high",
-                    timestamp=ts,
-                    summary=f"New all-time {tc} high: {current_best} (was {prev})",
-                    metrics={
-                        "time_control": tc,
-                        "new_best": current_best,
-                        "previous_best": prev,
-                        "game_url": best_block.get("game"),
-                    },
-                ))
-            else:
-                logger.info("jake: seeding %s best rating = %d", tc, current_best)
+            ts = datetime.fromtimestamp(best_block.get("date", 0), tz=_TZ)
+            summary = (
+                f"New all-time {tc} high: {current_best} (was {prev})"
+                if prev is not None
+                else f"All-time {tc} best: {current_best}"
+            )
+            results.append(Accomplishment(
+                friend=_FRIEND,
+                source=_SOURCE,
+                type=f"new_{tc}_rating_high",
+                timestamp=ts,
+                summary=summary,
+                metrics={
+                    "time_control": tc,
+                    "new_best": current_best,
+                    "previous_best": prev,
+                    "game_url": best_block.get("game"),
+                },
+            ))
 
     state["best_ratings"] = new_bests
     return results

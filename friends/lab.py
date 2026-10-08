@@ -117,26 +117,26 @@ def _new_hardest_grade(ticks: list[dict], state: dict) -> list[Accomplishment]:
     new_code = week_best["rating_code_int"]
     new_grade = week_best["Rating"]
 
-    # Always update state
     if new_code > prev_code:
         state["hardest_clean_send_code"] = new_code
         state["hardest_clean_send_grade"] = new_grade
-
-    if prev_code == 0:
-        logger.info("lab: seeding hardest clean send = %s (%d)", new_grade, new_code)
-        return []
 
     if new_code <= prev_code:
         return []
 
     style = week_best.get("Lead Style", "send")
     ts = datetime.combine(week_best["date_obj"], datetime.min.time()).replace(tzinfo=_TZ)
+    summary = (
+        f"New hardest clean send: {week_best['Route']} {new_grade} ({style}) — was {prev_grade}"
+        if prev_code > 0
+        else f"Hardest clean send this week: {week_best['Route']} {new_grade} ({style})"
+    )
     return [Accomplishment(
         friend=_FRIEND,
         source=_SOURCE,
         type="new_hardest_grade",
         timestamp=ts,
-        summary=f"New hardest clean send: {week_best['Route']} {new_grade} ({style}) — was {prev_grade}",
+        summary=summary,
         metrics={
             "route": week_best["Route"],
             "new_grade": new_grade,
