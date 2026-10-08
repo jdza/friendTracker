@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 _SMTP_HOST = "smtp.gmail.com"
 _SMTP_PORT = 465
-_FROM_NAME = "The Weekly Friendship"
+_FROM_NAME = "The Friendship Weekly"
 
 
 def _config() -> tuple[str, str, list[str]]:
