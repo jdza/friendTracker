@@ -2,7 +2,7 @@
 
 A weekly newsletter about what our friends are up to. Each person has one tracked source — Strava, chess.com, Mountain Project, Spotify, etc. Every Monday the pipeline pulls the previous week's activity, scores accomplishments by tier, and sends an HTML email to the group. A new all-time chess rating beats an average training week; a big climbing send beats routine mileage.
 
-The pull stage is complete. Newsletter formatting and delivery are next.
+The pull and format stages are complete. Email delivery is built and waiting on the group Gmail account being allowed to send.
 
 ---
 
@@ -15,7 +15,7 @@ pull_data.py  →  newsletter.py  →  send_email.py
 ```
 
 1. **Pull** — `pull_data.py` loads `friends.yaml`, calls `fetch()` on each friend's module, and writes `data/<week-start>.json`.
-2. **Format** — `newsletter.py` reads the week's accomplishments, organizes them by friend and tier, and renders HTML + plain text. Not built yet.
+2. **Format** — `newsletter.py` reads the week's accomplishments, organizes them by friend and tier, and renders HTML + plain text to `data/<week-start>.html` / `.txt`.
 3. **Send** — `send_email.py` delivers from theweeklyfriendship@gmail.com over Gmail SMTP to the recipient list. Delivery works (`python send_email.py --test`); hooking it up to the newsletter is not built yet.
 
 ### Layout
@@ -134,6 +134,17 @@ python pull_data.py --week 2026-09-28  # backfill a specific week (must be a Mon
 
 Output goes to `data/<week-start>.json`. One friend failing doesn't stop the others.
 
+### Newsletter
+
+```bash
+python newsletter.py                    # render last completed week → data/<week>.html + .txt
+python newsletter.py --week 2026-09-28  # a specific week (pull it first)
+python newsletter.py --send             # render and email it to RECIPIENTS
+python send_email.py --test             # check email delivery on its own
+```
+
+Open the `.html` file in a browser to preview before sending.
+
 ---
 
 ## Adding a friend
@@ -183,6 +194,8 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
 
 - **Pull stage complete** — all four friends pulling live data each week
 
+- **Newsletter formatting** (`newsletter.py`) — HTML + plain text, one section per friend in `friends.yaml` order, items ordered Records → Highlights → The week, with links where the data has them. Subject line counts new records.
+
 - **Jake / chess.com** — public API, no auth. Detects:
   - Weekly W/L/D record per time control (rapid, blitz, bullet)
   - Hot streak (longest consecutive-win run ≥3 in the week)
@@ -219,8 +232,7 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
 
 ### Next
 
-- **Newsletter formatting** — render accomplishments into HTML + plain text email, organized by friend with tier-based ordering (records → highlights → weekly facts)
-- **Email delivery** — wire `send_email.send()` to the rendered newsletter. Needs a Gmail app password for the group account (Google won't accept the regular password over SMTP; create one at myaccount.google.com/apppasswords with 2-Step Verification on) and `RECIPIENTS` as a comma-separated list
+- **Email delivery** — `newsletter.py --send` is wired up; first real send is blocked on Google allowing SMTP for the new group account. Needs a Gmail app password for the group account (Google won't accept the regular password over SMTP; create one at myaccount.google.com/apppasswords with 2-Step Verification on) and `RECIPIENTS` as a comma-separated list
 
 ### Later
 
