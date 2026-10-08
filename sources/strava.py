@@ -42,7 +42,7 @@ def _write_refresh_token(new_token: str) -> None:
     if not found:
         updated.append(f"STRAVA_REFRESH_TOKEN={new_token}\n")
     tmp.write_text("".join(updated))
-    tmp.rename(_ENV_PATH)
+    tmp.replace(_ENV_PATH)  # rename() fails on Windows when .env exists
 
 
 def get_access_token(
