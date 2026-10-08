@@ -99,7 +99,7 @@ SENDGRID_API_KEY=
 
 Strava credentials are tied to a specific app registered on Steg's account with `activity:read_all` scope. They're shared out-of-band. Without them, Steg's fetch will fail gracefully and the run will continue — a missing friend produces an error log line, not a crash.
 
-Spotify credentials are optional. Asher's stream counts are scraped with no login; the keys only add Spotify's genre tags. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and copy its Client ID and Client Secret.
+Spotify credentials are optional. Asher's stream counts are scraped with no login; the keys only add Spotify's genre tags. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and copy its Client ID and Client Secret. Caveat: development-mode apps created after February 2026 get artist objects with `genres` stripped out entirely, so with a new app genres show as unavailable (the tracker logs a warning and skips them).
 
 ### First run
 
