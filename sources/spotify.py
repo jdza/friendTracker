@@ -11,6 +11,8 @@ handshake, which changes often.
 Genres only exist in the official Web API. If SPOTIFY_CLIENT_ID and
 SPOTIFY_CLIENT_SECRET are set, get_artist_genres() uses the client-credentials
 flow to read them; otherwise it returns None and the rest still works.
+Note: development-mode apps created after Feb 2026 don't receive the genres
+field at all, so in practice this needs an app with extended quota access.
 
 Requires: pip install playwright && python -m playwright install chromium
 """
@@ -173,7 +175,8 @@ def _client_credentials_token() -> Optional[str]:
 
 def get_artist_genres(artist_id: str) -> Optional[list[str]]:
     """
-    Spotify's genre tags for an artist, or None if credentials aren't configured.
+    Spotify's genre tags for an artist, or None if credentials aren't
+    configured or the app isn't allowed to see genres.
 
     Spotify only assigns genres once an artist has enough listening data, so
     an empty list is a normal answer for small artists.
@@ -188,4 +191,10 @@ def get_artist_genres(artist_id: str) -> Optional[list[str]]:
     )
     if not resp.ok:
         raise RuntimeError(f"Spotify artist lookup failed {resp.status_code}: {resp.text[:200]}")
-    return resp.json().get("genres", [])
+    body = resp.json()
+    if "genres" not in body:
+        # Development-mode apps created after Feb 2026 get artist objects
+        # with genres stripped entirely (not just empty).
+        logger.warning("Spotify omitted genres for %s — app likely lacks access to that field", artist_id)
+        return None
+    return body["genres"]
