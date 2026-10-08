@@ -101,3 +101,33 @@ def player_rating_in_game(game: dict, username: str) -> Optional[int]:
         if player.get("username", "").lower() == uname:
             return player.get("rating")
     return None
+
+
+def opponent_info(game: dict, username: str) -> Optional[dict]:
+    """Return the opponent's player block, or None if username not found."""
+    uname = username.lower()
+    for mine, theirs in (("white", "black"), ("black", "white")):
+        if game.get(mine, {}).get("username", "").lower() == uname:
+            return game.get(theirs)
+    return None
+
+
+def player_accuracy(game: dict, username: str) -> Optional[float]:
+    """Return the player's accuracy score from this game, if available."""
+    uname = username.lower()
+    accuracies = game.get("accuracies")
+    if not accuracies:
+        return None
+    for color in ("white", "black"):
+        if game.get(color, {}).get("username", "").lower() == uname:
+            return accuracies.get(color)
+    return None
+
+
+def opening_name(game: dict) -> str:
+    """Extract a human-readable opening name from the ECO URL."""
+    eco_url = game.get("eco", "")
+    if not eco_url:
+        return "Unknown opening"
+    slug = eco_url.rstrip("/").split("/")[-1]
+    return slug.replace("-", " ")

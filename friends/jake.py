@@ -3,10 +3,13 @@ Jake — chess.com weekly tracker.
 
 fetch(since, until, state) -> list[Accomplishment]
 
-Returns:
-  - New wins per time control (count + win rate for the week)
-  - New all-time-high rating for any time control where best.rating improved
-    since the last run (tracked via state)
+Detects:
+  - New all-time-high rating (rapid / blitz / bullet)
+  - Weekly record summary per time control
+  - Hot streak: longest consecutive-win run in the week (≥3)
+  - Great week: ≥55% win rate across all time controls (min 5 games)
+  - Upset win: beat an opponent rated 100+ higher
+  - High accuracy: game where Jake's accuracy ≥ 90
 """
 
 from __future__ import annotations
@@ -26,56 +29,32 @@ _FRIEND = "jake"
 _SOURCE = "chesscom"
 _USERNAME = "jawg28"
 
-# Track these time controls; daily chess is slow-paced and less interesting
 _TRACKED = ("rapid", "blitz", "bullet")
+_GREAT_WEEK_THRESHOLD = 0.55
+_GREAT_WEEK_MIN_GAMES = 5
+_STREAK_MIN = 3
+_UPSET_GAP = 100
+_HIGH_ACCURACY = 90.0
 
 
-def fetch(since: datetime, until: datetime, state: dict) -> list[Accomplishment]:
-    after = int(since.timestamp())
-    before = int(until.timestamp())
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    stats = chesscom.get_stats(_USERNAME)
-    games = chesscom.get_games_for_week(_USERNAME, after, before)
+def _game_ts(game: dict) -> datetime:
+    return datetime.fromtimestamp(game["end_time"], tz=_TZ)
 
-    results: list[Accomplishment] = []
 
-    # --- New wins per time control ---
-    by_tc: dict[str, dict] = defaultdict(lambda: {"wins": 0, "losses": 0, "draws": 0})
-    for g in games:
-        tc = g.get("time_class")
-        if tc not in _TRACKED:
-            continue
-        outcome = chesscom.parse_result(g, _USERNAME)
-        if outcome == "win":
-            by_tc[tc]["wins"] += 1
-        elif outcome == "loss":
-            by_tc[tc]["losses"] += 1
-        elif outcome == "draw":
-            by_tc[tc]["draws"] += 1
+def _tracked_games(games: list[dict]) -> list[dict]:
+    return [g for g in games if g.get("time_class") in _TRACKED]
 
-    for tc, counts in by_tc.items():
-        wins = counts["wins"]
-        if wins == 0:
-            continue
-        total = wins + counts["losses"] + counts["draws"]
-        win_pct = round(100 * wins / total) if total else 0
-        results.append(Accomplishment(
-            friend=_FRIEND,
-            source=_SOURCE,
-            type=f"weekly_{tc}_wins",
-            timestamp=since,
-            summary=f"{wins}W / {counts['losses']}L / {counts['draws']}D in {tc} ({win_pct}% win rate)",
-            metrics={
-                "time_control": tc,
-                "wins": wins,
-                "losses": counts["losses"],
-                "draws": counts["draws"],
-                "total_games": total,
-                "win_pct": win_pct,
-            },
-        ))
 
-    # --- New all-time-high ratings ---
+# ---------------------------------------------------------------------------
+# Detectors
+# ---------------------------------------------------------------------------
+
+def _rating_highs(stats: dict, state: dict) -> list[Accomplishment]:
+    results = []
     prev_bests: dict[str, int] = state.get("best_ratings", {})
     new_bests: dict[str, int] = dict(prev_bests)
 
@@ -90,15 +69,12 @@ def fetch(since: datetime, until: datetime, state: dict) -> list[Accomplishment]
         if prev is None or current_best > prev:
             new_bests[tc] = current_best
             if prev is not None:
-                # Only emit if we've seen this person before (not first run)
-                best_ts = datetime.fromtimestamp(
-                    best_block.get("date", after), tz=_TZ
-                )
+                ts = datetime.fromtimestamp(best_block.get("date", 0), tz=_TZ)
                 results.append(Accomplishment(
                     friend=_FRIEND,
                     source=_SOURCE,
                     type=f"new_{tc}_rating_high",
-                    timestamp=best_ts,
+                    timestamp=ts,
                     summary=f"New all-time {tc} high: {current_best} (was {prev})",
                     metrics={
                         "time_control": tc,
@@ -111,6 +87,197 @@ def fetch(since: datetime, until: datetime, state: dict) -> list[Accomplishment]
                 logger.info("jake: seeding %s best rating = %d", tc, current_best)
 
     state["best_ratings"] = new_bests
+    return results
+
+
+def _weekly_record(games: list[dict], since: datetime) -> list[Accomplishment]:
+    results = []
+    by_tc: dict[str, dict] = defaultdict(lambda: {"wins": 0, "losses": 0, "draws": 0})
+
+    for g in _tracked_games(games):
+        outcome = chesscom.parse_result(g, _USERNAME)
+        tc = g["time_class"]
+        if outcome == "win":
+            by_tc[tc]["wins"] += 1
+        elif outcome == "loss":
+            by_tc[tc]["losses"] += 1
+        elif outcome == "draw":
+            by_tc[tc]["draws"] += 1
+
+    for tc, c in by_tc.items():
+        total = c["wins"] + c["losses"] + c["draws"]
+        if total == 0:
+            continue
+        win_pct = round(100 * c["wins"] / total)
+        results.append(Accomplishment(
+            friend=_FRIEND,
+            source=_SOURCE,
+            type=f"weekly_{tc}_record",
+            timestamp=since,
+            summary=f"{c['wins']}W / {c['losses']}L / {c['draws']}D in {tc} ({win_pct}% win rate)",
+            metrics={
+                "time_control": tc,
+                "wins": c["wins"],
+                "losses": c["losses"],
+                "draws": c["draws"],
+                "total_games": total,
+                "win_pct": win_pct,
+            },
+        ))
+    return results
+
+
+def _hot_streak(games: list[dict], since: datetime) -> list[Accomplishment]:
+    """Longest consecutive-win run across all time controls in the week."""
+    ordered = sorted(_tracked_games(games), key=lambda g: g["end_time"])
+
+    best_streak: list[dict] = []
+    current: list[dict] = []
+
+    for g in ordered:
+        if chesscom.parse_result(g, _USERNAME) == "win":
+            current.append(g)
+            if len(current) > len(best_streak):
+                best_streak = list(current)
+        else:
+            current = []
+
+    if len(best_streak) < _STREAK_MIN:
+        return []
+
+    streak_end = _game_ts(best_streak[-1])
+    tcs = sorted({g["time_class"] for g in best_streak})
+    return [Accomplishment(
+        friend=_FRIEND,
+        source=_SOURCE,
+        type="hot_streak",
+        timestamp=streak_end,
+        summary=f"{len(best_streak)}-game win streak ({', '.join(tcs)})",
+        metrics={
+            "streak_length": len(best_streak),
+            "time_controls": tcs,
+            "game_urls": [g["url"] for g in best_streak],
+        },
+    )]
+
+
+def _great_week(games: list[dict], since: datetime) -> list[Accomplishment]:
+    """Overall win rate ≥55% across all time controls, min 5 games."""
+    tracked = _tracked_games(games)
+    wins = sum(1 for g in tracked if chesscom.parse_result(g, _USERNAME) == "win")
+    losses = sum(1 for g in tracked if chesscom.parse_result(g, _USERNAME) == "loss")
+    draws = sum(1 for g in tracked if chesscom.parse_result(g, _USERNAME) == "draw")
+    total = wins + losses + draws
+
+    if total < _GREAT_WEEK_MIN_GAMES:
+        return []
+    win_rate = wins / total
+    if win_rate < _GREAT_WEEK_THRESHOLD:
+        return []
+
+    win_pct = round(100 * win_rate)
+    return [Accomplishment(
+        friend=_FRIEND,
+        source=_SOURCE,
+        type="great_week",
+        timestamp=since,
+        summary=f"Great week: {wins}W / {losses}L / {draws}D across all controls ({win_pct}%)",
+        metrics={
+            "wins": wins,
+            "losses": losses,
+            "draws": draws,
+            "total_games": total,
+            "win_pct": win_pct,
+        },
+    )]
+
+
+def _upset_wins(games: list[dict]) -> list[Accomplishment]:
+    """Beat an opponent rated 100+ higher."""
+    results = []
+    for g in _tracked_games(games):
+        if chesscom.parse_result(g, _USERNAME) != "win":
+            continue
+        my_rating = chesscom.player_rating_in_game(g, _USERNAME)
+        opp = chesscom.opponent_info(g, _USERNAME)
+        if not opp or my_rating is None:
+            continue
+        opp_rating = opp.get("rating")
+        if opp_rating is None:
+            continue
+        gap = opp_rating - my_rating
+        if gap < _UPSET_GAP:
+            continue
+        opening = chesscom.opening_name(g)
+        results.append(Accomplishment(
+            friend=_FRIEND,
+            source=_SOURCE,
+            type="upset_win",
+            timestamp=_game_ts(g),
+            summary=(
+                f"Upset: beat {opp['username']} ({opp_rating}) "
+                f"as {my_rating} (+{gap}) playing {opening}"
+            ),
+            metrics={
+                "jake_rating": my_rating,
+                "opponent": opp["username"],
+                "opponent_rating": opp_rating,
+                "rating_gap": gap,
+                "time_control": g["time_class"],
+                "opening": opening,
+                "game_url": g["url"],
+            },
+        ))
+    return results
+
+
+def _high_accuracy_games(games: list[dict]) -> list[Accomplishment]:
+    """Games where Jake's accuracy ≥ 90."""
+    results = []
+    for g in _tracked_games(games):
+        acc = chesscom.player_accuracy(g, _USERNAME)
+        if acc is None or acc < _HIGH_ACCURACY:
+            continue
+        opp = chesscom.opponent_info(g, _USERNAME)
+        opp_name = opp["username"] if opp else "opponent"
+        outcome = chesscom.parse_result(g, _USERNAME) or "unknown"
+        opening = chesscom.opening_name(g)
+        results.append(Accomplishment(
+            friend=_FRIEND,
+            source=_SOURCE,
+            type="high_accuracy_game",
+            timestamp=_game_ts(g),
+            summary=f"{acc:.1f}% accuracy ({outcome}) vs {opp_name} — {opening}",
+            metrics={
+                "accuracy": acc,
+                "outcome": outcome,
+                "opponent": opp_name,
+                "time_control": g["time_class"],
+                "opening": opening,
+                "game_url": g["url"],
+            },
+        ))
+    return sorted(results, key=lambda r: r.metrics["accuracy"], reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def fetch(since: datetime, until: datetime, state: dict) -> list[Accomplishment]:
+    after = int(since.timestamp())
+    before = int(until.timestamp())
+
+    stats = chesscom.get_stats(_USERNAME)
+    games = chesscom.get_games_for_week(_USERNAME, after, before)
+
+    results: list[Accomplishment] = []
+    results.extend(_rating_highs(stats, state))
+    results.extend(_weekly_record(games, since))
+    results.extend(_hot_streak(games, since))
+    results.extend(_great_week(games, since))
+    results.extend(_upset_wins(games))
+    results.extend(_high_accuracy_games(games))
 
     return results
 
@@ -129,12 +296,12 @@ if __name__ == "__main__":
     import json
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     since, until = _last_week()
-    print(f"Fetching Jake's chess.com activity {since.date()} → {until.date()}")
+    print(f"Fetching Jake's chess.com activity {since.date()} → {until.date()}\n")
     state: dict = {}
     results = fetch(since, until, state)
     if not results:
         print("No accomplishments found.")
     else:
         for r in results:
-            print(f"  [{r.type}] {r.summary}")
-    print(f"  state after: {json.dumps(state)}")
+            print(f"  [{r.type}]\n  {r.summary}\n")
+    print(f"state after: {json.dumps(state)}")
