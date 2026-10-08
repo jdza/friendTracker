@@ -5,6 +5,12 @@ friends:
     module: friends.jake
     handle: jawg28
 
+  - name: lab
+    display_name: Lab
+    source: mountainproject
+    module: friends.lab
+    handle: "201311703/jack-labadia"
+
   - name: steg
     display_name: Steg
     source: strava
