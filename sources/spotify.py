@@ -6,24 +6,17 @@ scrape them the same way open.spotify.com gets them: load the artist and
 album pages in headless Chromium and capture the web player's own
 `pathfinder` GraphQL responses (queryArtistOverview, getAlbum). Letting the
 real page run means we never have to reimplement Spotify's anonymous-token
-handshake, which changes often.
+handshake, which changes often. No credentials needed.
 
-Genres only exist in the official Web API. If SPOTIFY_CLIENT_ID and
-SPOTIFY_CLIENT_SECRET are set, get_artist_genres() uses the client-credentials
-flow to read them; otherwise it returns None and the rest still works.
-Note: development-mode apps created after Feb 2026 don't receive the genres
-field at all, so in practice this needs an app with extended quota access.
+Not available logged out: genres (stripped from the Web API for new apps),
+"Discovered On" playlists (returned as errors), and song credits.
 
 Requires: pip install playwright && python -m playwright install chromium
 """
 
-import base64
 import logging
-import os
 from datetime import date, datetime
-from typing import Optional
-
-import requests
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -52,19 +45,53 @@ def _capture(page, url: str, operation: str) -> dict:
 
 
 def _parse_date(d: Optional[dict]) -> Optional[date]:
-    if not d or not d.get("isoString"):
+    if not d:
         return None
-    return datetime.fromisoformat(d["isoString"].replace("Z", "+00:00")).date()
+    if d.get("isoString"):
+        return datetime.fromisoformat(d["isoString"].replace("Z", "+00:00")).date()
+    if d.get("year"):
+        return date(d["year"], 1, 1)
+    return None
 
+
+def _largest_image(sources: list[dict]) -> Optional[str]:
+    if not sources:
+        return None
+    return max(sources, key=lambda s: (s.get("width") or 0))["url"]
+
+
+def _uri_id(uri: str) -> str:
+    return uri.rsplit(":", 1)[-1]
+
+
+def _find(obj: Any, key: str) -> Any:
+    """First value for key anywhere in a nested dict/list (for loosely-shaped fields)."""
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        children = obj.values()
+    elif isinstance(obj, list):
+        children = obj
+    else:
+        return None
+    for child in children:
+        found = _find(child, key)
+        if found is not None:
+            return found
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Artist-page parsers
+# ---------------------------------------------------------------------------
 
 def _release_refs(discography: dict) -> list[dict]:
     """Every release (album / single / EP / compilation) listed on the artist page."""
     refs: dict[str, dict] = {}
     for group in ("albums", "singles", "compilations"):
-        for item in discography.get(group, {}).get("items", []):
+        for item in (discography.get(group) or {}).get("items", []):
             for rel in item.get("releases", {}).get("items", []):
                 refs[rel["uri"]] = {
-                    "uri": rel["uri"],
                     "id": rel["id"],
                     "name": rel["name"],
                     "type": rel.get("type", group.rstrip("s").upper()),
@@ -73,16 +100,93 @@ def _release_refs(discography: dict) -> list[dict]:
     return list(refs.values())
 
 
+def _playlists(items: list[dict]) -> list[dict]:
+    out = []
+    for it in items:
+        d = it.get("data", {})
+        if d.get("__typename") != "Playlist":
+            continue
+        out.append({
+            "id": _uri_id(d["uri"]),
+            "name": d.get("name", ""),
+            "owner": (d.get("ownerV2") or {}).get("data", {}).get("name", ""),
+            "url": f"{_WEB}/playlist/{_uri_id(d['uri'])}",
+        })
+    return out
+
+
+def _appears_on(items: list[dict]) -> list[dict]:
+    out = []
+    for it in items:
+        for rel in it.get("releases", {}).get("items", []):
+            out.append({
+                "id": rel["id"],
+                "name": rel.get("name", ""),
+                "type": rel.get("type", ""),
+                "artists": [a["profile"]["name"] for a in rel.get("artists", {}).get("items", [])],
+                "release_date": _parse_date(rel.get("date")),
+                "url": f"{_WEB}/album/{rel['id']}",
+            })
+    return out
+
+
+def _concerts(items: list[dict]) -> list[dict]:
+    out = []
+    for it in items:
+        d = it.get("data", {})
+        if not d.get("uri"):
+            continue
+        loc = d.get("location") or {}
+        out.append({
+            "id": _uri_id(d["uri"]),
+            "title": d.get("title", ""),
+            "venue": loc.get("name", ""),
+            "city": loc.get("city", ""),
+            "start": d.get("startDateIsoString", ""),
+            "festival": bool(d.get("festival")),
+            "url": f"{_WEB}/concert/{_uri_id(d['uri'])}",
+        })
+    return out
+
+
+def _pre_release(pre: Optional[dict]) -> Optional[dict]:
+    """An announced-but-unreleased (countdown) release, if Spotify shows one."""
+    if not pre:
+        return None
+    uri = _find(pre, "uri") or ""
+    when = _find(pre, "isoString") or _find(pre, "releaseDate")
+    if isinstance(when, dict):
+        parsed = _parse_date(when)
+        when = parsed.isoformat() if parsed else None
+    return {
+        "id": _uri_id(uri) if uri else None,
+        "name": _find(pre, "name") or "",
+        "release_date": when if isinstance(when, str) else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Snapshot
+# ---------------------------------------------------------------------------
+
 def get_artist_snapshot(artist_id: str) -> dict:
     """
-    Scrape a point-in-time snapshot of an artist's Spotify stats.
+    Scrape a point-in-time snapshot of an artist's Spotify presence.
 
     Returns:
       {
-        "artist_id", "name", "monthly_listeners", "followers",
-        "top_cities": [{"city", "region", "country", "listeners"}],
-        "releases":   [{"id", "name", "type", "release_date" (date|None), "track_count"}],
-        "tracks":     [{"id", "name", "playcount", "release", "release_date", "artists"}],
+        "artist_id", "name", "monthly_listeners", "followers", "world_rank",
+        "verified", "biography", "image_url", "external_links": [{"name", "url"}],
+        "top_cities":       [{"city", "region", "country", "listeners"}],
+        "releases":         [{"id", "name", "type", "release_date", "label", "track_count", "url"}],
+        "tracks":           [{"id", "name", "playcount", "duration_ms", "explicit",
+                              "release", "release_date", "artists", "url"}],
+        "featured_on":      [{"id", "name", "owner", "url"}],   # Spotify playlists featuring them
+        "artist_playlists": [{"id", "name", "owner", "url"}],   # playlists on their profile
+        "appears_on":       [{"id", "name", "type", "artists", "release_date", "url"}],
+        "concerts":         [{"id", "title", "venue", "city", "start", "festival", "url"}],
+        "related_artists":  [str],                               # "Fans also like"
+        "pre_release":      {"id", "name", "release_date"} | None,
       }
 
     `tracks` is deduplicated by title: the same recording on a single and an
@@ -110,17 +214,23 @@ def get_artist_snapshot(artist_id: str) -> dict:
                     "name": album["name"],
                     "type": album.get("type", ref["type"]),
                     "release_date": rel_date,
+                    "label": album.get("label", ""),
                     "track_count": len(items),
+                    "url": f"{_WEB}/album/{ref['id']}",
                 })
                 for it in items:
                     t = it["track"]
+                    tid = _uri_id(t["uri"])
                     row = {
-                        "id": t["uri"].rsplit(":", 1)[-1],
+                        "id": tid,
                         "name": t["name"],
                         "playcount": int(t.get("playcount") or 0),
+                        "duration_ms": (t.get("duration") or {}).get("totalMilliseconds", 0),
+                        "explicit": (t.get("contentRating") or {}).get("label") == "EXPLICIT",
                         "release": album["name"],
                         "release_date": rel_date,
                         "artists": [a["profile"]["name"] for a in t["artists"]["items"]],
+                        "url": f"{_WEB}/track/{tid}",
                     }
                     key = t["name"].strip().lower()
                     prev = tracks.get(key)
@@ -132,12 +242,24 @@ def get_artist_snapshot(artist_id: str) -> dict:
         finally:
             browser.close()
 
-    stats = artist.get("stats", {})
+    stats = artist.get("stats") or {}
+    profile = artist.get("profile") or {}
+    related = artist.get("relatedContent") or {}
+    goods = artist.get("goods") or {}
+    verification = (artist.get("onPlatformReputationTrait") or {}).get("verification") or {}
+
     return {
         "artist_id": artist_id,
-        "name": artist["profile"]["name"],
+        "name": profile["name"],
         "monthly_listeners": stats.get("monthlyListeners") or 0,
         "followers": stats.get("followers") or 0,
+        "world_rank": stats.get("worldRank") or None,
+        "verified": bool(verification.get("isVerified")),
+        "biography": (profile.get("biography") or {}).get("text", ""),
+        "image_url": _largest_image(
+            ((artist.get("visuals") or {}).get("avatarImage") or {}).get("sources", [])),
+        "external_links": [{"name": l["name"], "url": l["url"]}
+                           for l in (profile.get("externalLinks") or {}).get("items", [])],
         "top_cities": [
             {
                 "city": c["city"],
@@ -145,56 +267,15 @@ def get_artist_snapshot(artist_id: str) -> dict:
                 "country": c.get("country", ""),
                 "listeners": c.get("numberOfListeners", 0),
             }
-            for c in stats.get("topCities", {}).get("items", [])
+            for c in (stats.get("topCities") or {}).get("items", [])
         ],
         "releases": sorted(releases, key=lambda r: r["release_date"] or date.min, reverse=True),
         "tracks": sorted(tracks.values(), key=lambda t: t["playcount"], reverse=True),
+        "featured_on": _playlists((related.get("featuringV2") or {}).get("items", [])),
+        "artist_playlists": _playlists((profile.get("playlistsV2") or {}).get("items", [])),
+        "appears_on": _appears_on((related.get("appearsOn") or {}).get("items", [])),
+        "concerts": _concerts((goods.get("concerts") or {}).get("items", [])),
+        "related_artists": [a["profile"]["name"]
+                            for a in (related.get("relatedArtists") or {}).get("items", [])],
+        "pre_release": _pre_release(artist.get("preRelease")),
     }
-
-
-# ---------------------------------------------------------------------------
-# Genres — official Web API (optional credentials)
-# ---------------------------------------------------------------------------
-
-def _client_credentials_token() -> Optional[str]:
-    client_id = os.getenv("SPOTIFY_CLIENT_ID")
-    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
-    if not client_id or not client_secret:
-        return None
-    basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-    resp = requests.post(
-        "https://accounts.spotify.com/api/token",
-        headers={"Authorization": f"Basic {basic}"},
-        data={"grant_type": "client_credentials"},
-        timeout=15,
-    )
-    if not resp.ok:
-        raise RuntimeError(f"Spotify token request failed {resp.status_code}: {resp.text[:200]}")
-    return resp.json()["access_token"]
-
-
-def get_artist_genres(artist_id: str) -> Optional[list[str]]:
-    """
-    Spotify's genre tags for an artist, or None if credentials aren't
-    configured or the app isn't allowed to see genres.
-
-    Spotify only assigns genres once an artist has enough listening data, so
-    an empty list is a normal answer for small artists.
-    """
-    token = _client_credentials_token()
-    if token is None:
-        return None
-    resp = requests.get(
-        f"https://api.spotify.com/v1/artists/{artist_id}",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=15,
-    )
-    if not resp.ok:
-        raise RuntimeError(f"Spotify artist lookup failed {resp.status_code}: {resp.text[:200]}")
-    body = resp.json()
-    if "genres" not in body:
-        # Development-mode apps created after Feb 2026 get artist objects
-        # with genres stripped entirely (not just empty).
-        logger.warning("Spotify omitted genres for %s — app likely lacks access to that field", artist_id)
-        return None
-    return body["genres"]

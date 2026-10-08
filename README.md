@@ -54,8 +54,8 @@ Accomplishments are organized into three tiers within each friend's section:
 
 | Tier | Types |
 |------|-------|
-| **1 — Records** | `new_*_rating_high`, `new_hardest_grade`, `new_longest_activity_ever`, `new_best_week_ever`, `new_monthly_listeners_high`, `new_stream_milestone` |
-| **2 — Highlights** | `hot_streak`, `upset_win`, `high_accuracy_game`, `clean_send`, `great_week`, `new_release`, `new_genre_tag` |
+| **1 — Records** | `new_*_rating_high`, `new_hardest_grade`, `new_longest_activity_ever`, `new_best_week_ever`, `new_monthly_listeners_high`, `new_stream_milestone`, `spotify_verified` |
+| **2 — Highlights** | `hot_streak`, `upset_win`, `high_accuracy_game`, `clean_send`, `great_week`, `new_release`, `release_announced`, `new_playlist_feature`, `new_appearance`, `concert_announced` |
 | **3 — The week** | `weekly_*_summary`, `weekly_*_record`, `longest_activity`, `weekly_streams_summary` |
 
 ### Weeks
@@ -92,14 +92,12 @@ Then fill in `.env` with real credentials (see below). **Never commit `.env`** �
 STRAVA_CLIENT_ID=
 STRAVA_CLIENT_SECRET=
 STRAVA_REFRESH_TOKEN=
-SPOTIFY_CLIENT_ID=
-SPOTIFY_CLIENT_SECRET=
 SENDGRID_API_KEY=
 ```
 
 Strava credentials are tied to a specific app registered on Steg's account with `activity:read_all` scope. They're shared out-of-band. Without them, Steg's fetch will fail gracefully and the run will continue — a missing friend produces an error log line, not a crash.
 
-Spotify credentials are optional. Asher's stream counts are scraped with no login; the keys only add Spotify's genre tags. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and copy its Client ID and Client Secret. Caveat: development-mode apps created after February 2026 get artist objects with `genres` stripped out entirely, so with a new app genres show as unavailable (the tracker logs a warning and skips them).
+Asher's Spotify data needs no credentials — it's scraped from the public web player. (Genres aren't tracked: Spotify strips them from the Web API for development-mode apps created after February 2026.)
 
 ### First run
 
@@ -205,11 +203,15 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
 - **Historical seeding** (`seed_state.py`) — scans full history for Jake, Lab, and Steg to establish true all-time baselines before the first weekly run (for Asher it just records current monthly listeners, since Spotify has no history)
 
 - **Asher / Spotify** — scraped from the open.spotify.com web player (headless Chromium via Playwright), no login. Detects:
-  - Weekly streams summary (plays gained per track, monthly listeners, followers, top cities)
+  - Weekly streams summary (plays gained per track, monthly listeners, followers, top cities, label, "Fans also like")
   - New release (single / EP / album released this week)
+  - Release announced (pre-release countdown on his profile)
   - Stream milestones (a track or the whole catalog passing 1k, 5k, 10k, …)
   - New all-time monthly-listener high (vs state)
-  - New Spotify genre tag (only with optional `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`)
+  - New playlist feature (Spotify playlists that feature him)
+  - New appearance (on another artist's release)
+  - Concert announced (new upcoming show on his profile)
+  - Verified (gets Spotify's verified badge)
 
   Spotify only shows lifetime totals, so `state.json` keeps one snapshot per week and weekly numbers are the difference from the previous one. Tracks under 1,000 plays show as 0 on Spotify, so their weekly gain is unknown until they pass 1,000. Backfilling with `--week` reports current totals, not historical ones.
 

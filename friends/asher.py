@@ -17,7 +17,14 @@ Detects:
   - New release: a single / EP / album released this week
   - Stream milestone: a track (or the whole catalog) crosses 1k, 5k, 10k, ...
   - New all-time monthly-listener high (vs state)
-  - New Spotify genre tag (requires SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET)
+  - New playlist feature: Spotify added him to a playlist ("Featuring Asher")
+  - New appearance: he shows up on someone else's release
+  - Concert announced: a new upcoming show listed on his profile
+  - Release announced: a pre-release countdown appears on his profile
+  - Verified: his profile gets Spotify's verified badge
+
+Playlists, appearances, and concerts are compared by ID against the previous
+snapshot; on the very first run they're recorded as a baseline, not announced.
 """
 
 from __future__ import annotations
@@ -57,14 +64,26 @@ def _fmt(n: int) -> str:
     return f"{n:,}"
 
 
-def _make_snapshot(snap: dict, genres: list[str] | None) -> dict:
+def _make_snapshot(snap: dict) -> dict:
     return {
         "taken_at": datetime.now(_TZ).isoformat(timespec="seconds"),
         "monthly_listeners": snap["monthly_listeners"],
         "followers": snap["followers"],
+        "verified": snap["verified"],
         "playcounts": {_key(t["name"]): t["playcount"] for t in snap["tracks"]},
-        "genres": genres,
+        "featured_on": [p["id"] for p in snap["featured_on"]],
+        "appears_on": [r["id"] for r in snap["appears_on"]],
+        "concerts": [c["id"] for c in snap["concerts"]],
+        "pre_release": (snap["pre_release"] or {}).get("id"),
     }
+
+
+def _unseen(items: list[dict], prev: dict | None, field: str) -> list[dict]:
+    """Items whose ID wasn't in the previous snapshot. Nothing on a first run."""
+    if prev is None or field not in prev:
+        return []
+    seen = set(prev[field])
+    return [i for i in items if i["id"] not in seen]
 
 
 def _previous_snapshot(state: dict, week_key: str) -> tuple[str | None, dict | None]:
@@ -79,7 +98,7 @@ def _previous_snapshot(state: dict, week_key: str) -> tuple[str | None, dict | N
 # ---------------------------------------------------------------------------
 
 def _weekly_summary(snap: dict, prev: dict | None, prev_week: str | None,
-                    genres: list[str] | None, since: datetime) -> list[Accomplishment]:
+                    since: datetime) -> list[Accomplishment]:
     tracks = snap["tracks"]
     total = sum(t["playcount"] for t in tracks)
     listeners = snap["monthly_listeners"]
@@ -92,10 +111,18 @@ def _weekly_summary(snap: dict, prev: dict | None, prev_week: str | None,
         "track_count": len(tracks),
         # Tracks Spotify reports as 0 (under 1,000 plays); total_streams is a floor.
         "tracks_under_1000": sum(1 for t in tracks if t["playcount"] < spotify.PLAYCOUNT_FLOOR),
-        "tracks": [{"name": t["name"], "playcount": t["playcount"], "release": t["release"]}
+        "tracks": [{"name": t["name"], "playcount": t["playcount"], "release": t["release"],
+                    "duration_ms": t["duration_ms"], "url": t["url"]}
                    for t in tracks],
         "top_cities": snap["top_cities"],
-        "genres": genres,
+        "world_rank": snap["world_rank"],
+        "verified": snap["verified"],
+        "labels": sorted({r["label"] for r in snap["releases"] if r["label"]}),
+        "related_artists": snap["related_artists"],
+        "featured_on": [p["name"] for p in snap["featured_on"]],
+        "upcoming_concerts": len(snap["concerts"]),
+        "image_url": snap["image_url"],
+        "profile_url": f"https://open.spotify.com/artist/{snap['artist_id']}",
         "compared_to_week": prev_week,
     }
 
@@ -231,19 +258,79 @@ def _monthly_listener_high(snap: dict, state: dict, since: datetime) -> list[Acc
     )]
 
 
-def _new_genres(genres: list[str] | None, prev: dict | None, since: datetime) -> list[Accomplishment]:
-    if not genres or prev is None or prev.get("genres") is None:
+def _new_playlist_features(snap: dict, prev: dict | None, since: datetime) -> list[Accomplishment]:
+    return [Accomplishment(
+        friend=_FRIEND,
+        source=_SOURCE,
+        type="new_playlist_feature",
+        timestamp=since,
+        summary=f"Added to playlist: {p['name']}" + (f" (by {p['owner']})" if p["owner"] else ""),
+        metrics={"playlist": p["name"], "owner": p["owner"], "url": p["url"]},
+    ) for p in _unseen(snap["featured_on"], prev, "featured_on")]
+
+
+def _new_appearances(snap: dict, prev: dict | None, since: datetime) -> list[Accomplishment]:
+    results = []
+    for r in _unseen(snap["appears_on"], prev, "appears_on"):
+        by = ", ".join(r["artists"])
+        results.append(Accomplishment(
+            friend=_FRIEND,
+            source=_SOURCE,
+            type="new_appearance",
+            timestamp=since,
+            summary=f"Appears on {r['name']}" + (f" by {by}" if by else ""),
+            metrics={
+                "release": r["name"],
+                "release_type": r["type"],
+                "artists": r["artists"],
+                "release_date": r["release_date"].isoformat() if r["release_date"] else None,
+                "url": r["url"],
+            },
+        ))
+    return results
+
+
+def _new_concerts(snap: dict, prev: dict | None, since: datetime) -> list[Accomplishment]:
+    results = []
+    for c in _unseen(snap["concerts"], prev, "concerts"):
+        where = ", ".join(x for x in (c["venue"], c["city"]) if x)
+        day = c["start"][:10]
+        results.append(Accomplishment(
+            friend=_FRIEND,
+            source=_SOURCE,
+            type="concert_announced",
+            timestamp=since,
+            summary=f"Show announced: {c['title']}" + (f" @ {where}" if where else "") + (f" on {day}" if day else ""),
+            metrics=dict(c),
+        ))
+    return results
+
+
+def _release_announced(snap: dict, prev: dict | None, since: datetime) -> list[Accomplishment]:
+    pre = snap["pre_release"]
+    if not pre or prev is None or "pre_release" not in prev or prev["pre_release"] == pre["id"]:
         return []
-    added = [g for g in genres if g not in prev["genres"]]
-    if not added:
+    when = f" (out {pre['release_date'][:10]})" if pre["release_date"] else ""
+    return [Accomplishment(
+        friend=_FRIEND,
+        source=_SOURCE,
+        type="release_announced",
+        timestamp=since,
+        summary=f"Upcoming release announced: {pre['name'] or 'untitled'}{when}",
+        metrics=dict(pre),
+    )]
+
+
+def _got_verified(snap: dict, prev: dict | None, since: datetime) -> list[Accomplishment]:
+    if not snap["verified"] or prev is None or prev.get("verified", True):
         return []
     return [Accomplishment(
         friend=_FRIEND,
         source=_SOURCE,
-        type="new_genre_tag",
+        type="spotify_verified",
         timestamp=since,
-        summary=f"Spotify tagged Asher with new genre{'s' if len(added) > 1 else ''}: {', '.join(added)}",
-        metrics={"added": added, "genres": genres},
+        summary="Asher is now a verified artist on Spotify",
+        metrics={"profile_url": f"https://open.spotify.com/artist/{snap['artist_id']}"},
     )]
 
 
@@ -253,24 +340,23 @@ def _new_genres(genres: list[str] | None, prev: dict | None, since: datetime) ->
 
 def fetch(since: datetime, until: datetime, state: dict) -> list[Accomplishment]:
     snap = spotify.get_artist_snapshot(_ARTIST_ID)
-    try:
-        genres = spotify.get_artist_genres(_ARTIST_ID)
-    except Exception as exc:
-        logger.warning("asher: genre lookup failed — %s", exc)
-        genres = None
 
     week_key = since.date().isoformat()
     prev_week, prev = _previous_snapshot(state, week_key)
 
     results: list[Accomplishment] = []
-    results.extend(_weekly_summary(snap, prev, prev_week, genres, since))
+    results.extend(_weekly_summary(snap, prev, prev_week, since))
     results.extend(_new_releases(snap, since, until))
     results.extend(_stream_milestones(snap, prev, since))
     results.extend(_monthly_listener_high(snap, state, since))
-    results.extend(_new_genres(genres, prev, since))
+    results.extend(_new_playlist_features(snap, prev, since))
+    results.extend(_new_appearances(snap, prev, since))
+    results.extend(_new_concerts(snap, prev, since))
+    results.extend(_release_announced(snap, prev, since))
+    results.extend(_got_verified(snap, prev, since))
 
     snapshots = state.setdefault("snapshots", {})
-    snapshots[week_key] = _make_snapshot(snap, genres)
+    snapshots[week_key] = _make_snapshot(snap)
     for old in sorted(snapshots)[:-_SNAPSHOTS_KEPT]:
         del snapshots[old]
 

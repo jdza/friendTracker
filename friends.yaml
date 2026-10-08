@@ -25,6 +25,3 @@ friends:
     source: spotify
     module: friends.asher
     handle: 0mt9ovmSTm6oRJyZnr3EZS  # open.spotify.com/artist/<id>
-    credentials:  # optional — only needed for genre tags
-      client_id_key: SPOTIFY_CLIENT_ID
-      client_secret_key: SPOTIFY_CLIENT_SECRET
