@@ -1,0 +1,9 @@
+friends:
+  - name: steg
+    display_name: Steg
+    source: strava
+    module: friends.steg
+    credentials:
+      client_id_key: STRAVA_CLIENT_ID
+      client_secret_key: STRAVA_CLIENT_SECRET
+      refresh_token_key: STRAVA_REFRESH_TOKEN
