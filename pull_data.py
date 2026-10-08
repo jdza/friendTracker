@@ -18,6 +18,8 @@ from zoneinfo import ZoneInfo
 import yaml
 from dotenv import load_dotenv
 
+from accomplishment import Accomplishment
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -91,6 +93,15 @@ def main() -> None:
             all_results.extend(r.to_dict() for r in results)
         except Exception as exc:
             logger.error("%s: fetch failed — %s", name, exc)
+            # Recorded so the newsletter can say "no data" instead of "quiet week".
+            all_results.append(Accomplishment(
+                friend=name,
+                source=friend_cfg.get("source", ""),
+                type="fetch_failed",
+                timestamp=since,
+                summary="Couldn't fetch data this week",
+                metrics={"error": str(exc)[:300]},
+            ).to_dict())
 
     _DATA_DIR.mkdir(exist_ok=True)
     out_path = _DATA_DIR / f"{week_key}.json"

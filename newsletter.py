@@ -62,9 +62,13 @@ def _week_label(monday: date) -> str:
 
 
 def build_sections(accomplishments: list[dict], friends: list[dict]) -> list[dict]:
-    """[{display_name, tiers: {tier: [acc, ...]}}] in friends.yaml order."""
+    """[{display_name, failed, tiers: {tier: [acc, ...]}}] in friends.yaml order."""
     by_friend: dict[str, list[dict]] = {}
+    failed: set[str] = set()
     for acc in accomplishments:
+        if acc["type"] == "fetch_failed":
+            failed.add(acc["friend"])
+            continue
         by_friend.setdefault(acc["friend"], []).append(acc)
 
     sections = []
@@ -72,8 +76,16 @@ def build_sections(accomplishments: list[dict], friends: list[dict]) -> list[dic
         tiers: dict[int, list[dict]] = {}
         for acc in sorted(by_friend.get(f["name"], []), key=lambda a: a["timestamp"]):
             tiers.setdefault(tier_of(acc["type"]), []).append(acc)
-        sections.append({"display_name": f.get("display_name", f["name"]), "tiers": dict(sorted(tiers.items()))})
+        sections.append({
+            "display_name": f.get("display_name", f["name"]),
+            "failed": f["name"] in failed,
+            "tiers": dict(sorted(tiers.items())),
+        })
     return sections
+
+
+def _empty_note(section: dict) -> str:
+    return "No data this week." if section["failed"] else "Quiet week."
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +97,7 @@ def render_text(monday: date, sections: list[dict]) -> str:
     for s in sections:
         lines.append(s["display_name"].upper())
         if not s["tiers"]:
-            lines.append("  Quiet week.")
+            lines.append(f"  {_empty_note(s)}")
         for tier, accs in s["tiers"].items():
             lines.append(f"  {_TIER_LABELS[tier]}")
             for acc in accs:
@@ -113,7 +125,7 @@ def render_html(monday: date, sections: list[dict]) -> str:
         parts.append('<div style="background:#ffffff;border-radius:10px;padding:18px 20px;margin-bottom:16px;">')
         parts.append(f'<h2 style="margin:0 0 10px;font-size:20px;">{e(s["display_name"])}</h2>')
         if not s["tiers"]:
-            parts.append('<p style="margin:0;color:#6b7280;font-size:15px;">Quiet week.</p>')
+            parts.append(f'<p style="margin:0;color:#6b7280;font-size:15px;">{_empty_note(s)}</p>')
         for tier, accs in s["tiers"].items():
             parts.append(
                 f'<p style="margin:12px 0 4px;font-size:12px;font-weight:700;letter-spacing:.06em;'
