@@ -1,4 +1,10 @@
 friends:
+  - name: jake
+    display_name: Jake
+    source: chesscom
+    module: friends.jake
+    handle: jawg28
+
   - name: steg
     display_name: Steg
     source: strava
