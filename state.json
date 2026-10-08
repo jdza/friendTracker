@@ -33,5 +33,27 @@
       "Walk": 4.23,
       "Rowing": 3.44
     }
+  },
+  "asher": {
+    "best_monthly_listeners": 41,
+    "snapshots": {
+      "2026-09-28": {
+        "taken_at": "2026-10-08T13:32:18-07:00",
+        "monthly_listeners": 41,
+        "followers": 190,
+        "verified": false,
+        "playcounts": {
+          "catch my eye": 5384,
+          "tv world": 3257,
+          "dropping coins": 1516,
+          "no worries": 0,
+          "is it all a dream?": 0
+        },
+        "featured_on": [],
+        "appears_on": [],
+        "concerts": [],
+        "pre_release": null
+      }
+    }
   }
 }
