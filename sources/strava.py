@@ -77,6 +77,21 @@ def _slim(activity: dict) -> dict:
     return a
 
 
+def get_all_activities(
+    client_id_key: str = "STRAVA_CLIENT_ID",
+    client_secret_key: str = "STRAVA_CLIENT_SECRET",
+    refresh_token_key: str = "STRAVA_REFRESH_TOKEN",
+) -> list[dict]:
+    """Fetch every activity on the account, no time bounds."""
+    return get_activities(
+        after=0,
+        before=9999999999,
+        client_id_key=client_id_key,
+        client_secret_key=client_secret_key,
+        refresh_token_key=refresh_token_key,
+    )
+
+
 def get_activities(
     after: int,
     before: int,

@@ -80,7 +80,9 @@ def main() -> None:
     for friend_cfg in config["friends"]:
         name = friend_cfg["name"]
         module_path = friend_cfg["module"]
-        friend_state = state.get(name, {})
+        if name not in state:
+            state[name] = {}
+        friend_state = state[name]
 
         try:
             mod = importlib.import_module(module_path)

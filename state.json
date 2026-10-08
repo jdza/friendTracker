@@ -1,1 +1,37 @@
-{}
+{
+  "jake": {
+    "best_ratings": {
+      "rapid": 1946,
+      "blitz": 1710,
+      "bullet": 1487
+    }
+  },
+  "lab": {
+    "hardest_clean_send_code": 7200,
+    "hardest_clean_send_grade": "5.12c"
+  },
+  "steg": {
+    "best_single_mi": {
+      "Ride": 100.3,
+      "Run": 26.28,
+      "Tennis": 4.58,
+      "RockClimbing": 9.73,
+      "Hike": 22.26,
+      "MountainBikeRide": 15.09,
+      "AlpineSki": 50.63,
+      "Walk": 4.23,
+      "Rowing": 3.44
+    },
+    "best_weekly_mi": {
+      "Ride": 120.43,
+      "Run": 35.54,
+      "Tennis": 7.0,
+      "RockClimbing": 11.22,
+      "Hike": 23.72,
+      "MountainBikeRide": 15.09,
+      "AlpineSki": 224.78,
+      "Walk": 4.23,
+      "Rowing": 3.44
+    }
+  }
+}
