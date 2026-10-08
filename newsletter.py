@@ -28,7 +28,7 @@ from pull_data import last_completed_monday
 logger = logging.getLogger(__name__)
 
 _DATA_DIR = Path("data")
-_TITLE = "The Weekly Friendship"
+_TITLE = "The Friendship Weekly"
 
 # Tier 1 — Records, 2 — Highlights, 3 — The week. First match wins; anything
 # unlisted lands in tier 3 so a new detector never disappears from the email.
