@@ -1,6 +1,6 @@
 # friendTracker
 
-A weekly newsletter about what our friends are up to. Each person has one tracked source — Strava, chess.com, Mountain Project, etc. Every Monday the pipeline pulls the previous week's activity, scores accomplishments by tier, and sends an HTML email to the group. A new all-time chess rating beats an average training week; a big climbing send beats routine mileage.
+A weekly newsletter about what our friends are up to. Each person has one tracked source — Strava, chess.com, Mountain Project, Spotify, etc. Every Monday the pipeline pulls the previous week's activity, scores accomplishments by tier, and sends an HTML email to the group. A new all-time chess rating beats an average training week; a big climbing send beats routine mileage.
 
 The pull stage is complete. Newsletter formatting and delivery are next.
 
@@ -54,9 +54,9 @@ Accomplishments are organized into three tiers within each friend's section:
 
 | Tier | Types |
 |------|-------|
-| **1 — Records** | `new_*_rating_high`, `new_hardest_grade`, `new_longest_activity_ever`, `new_best_week_ever` |
-| **2 — Highlights** | `hot_streak`, `upset_win`, `high_accuracy_game`, `clean_send`, `great_week` |
-| **3 — The week** | `weekly_*_summary`, `weekly_*_record`, `longest_activity` |
+| **1 — Records** | `new_*_rating_high`, `new_hardest_grade`, `new_longest_activity_ever`, `new_best_week_ever`, `new_monthly_listeners_high`, `new_stream_milestone` |
+| **2 — Highlights** | `hot_streak`, `upset_win`, `high_accuracy_game`, `clean_send`, `great_week`, `new_release`, `new_genre_tag` |
+| **3 — The week** | `weekly_*_summary`, `weekly_*_record`, `longest_activity`, `weekly_streams_summary` |
 
 ### Weeks
 
@@ -76,8 +76,11 @@ cd friendTracker
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+python -m playwright install chromium   # headless browser for the Spotify scraper
 cp .env.example .env
 ```
+
+On Windows, activate with `.venv\Scripts\activate` and set `PYTHONUTF8=1` so the `→` in log output prints.
 
 Then fill in `.env` with real credentials (see below). **Never commit `.env`** — it's gitignored.
 
@@ -89,10 +92,14 @@ Then fill in `.env` with real credentials (see below). **Never commit `.env`** �
 STRAVA_CLIENT_ID=
 STRAVA_CLIENT_SECRET=
 STRAVA_REFRESH_TOKEN=
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
 SENDGRID_API_KEY=
 ```
 
 Strava credentials are tied to a specific app registered on Steg's account with `activity:read_all` scope. They're shared out-of-band. Without them, Steg's fetch will fail gracefully and the run will continue — a missing friend produces an error log line, not a crash.
+
+Spotify credentials are optional. Asher's stream counts are scraped with no login; the keys only add Spotify's genre tags. Create an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and copy its Client ID and Client Secret.
 
 ### First run
 
@@ -113,6 +120,7 @@ python pull_data.py
 python -m friends.steg
 python -m friends.jake
 python -m friends.lab
+python -m friends.asher
 ```
 
 Prints last week's accomplishments directly. Use this when developing or debugging a friend module.
@@ -173,7 +181,7 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
 
 ### Done
 
-- **Pull stage complete** — all three friends pulling live data each week
+- **Pull stage complete** — all four friends pulling live data each week
 
 - **Jake / chess.com** — public API, no auth. Detects:
   - Weekly W/L/D record per time control (rapid, blitz, bullet)
@@ -194,7 +202,16 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
   - New all-time longest single activity (vs seeded state; current: 100.3 mi ride)
   - New all-time best week by mileage (vs seeded state; current: 120.4 mi ride week)
 
-- **Historical seeding** (`seed_state.py`) — scans full history for all three friends to establish true all-time baselines before the first weekly run
+- **Historical seeding** (`seed_state.py`) — scans full history for Jake, Lab, and Steg to establish true all-time baselines before the first weekly run (for Asher it just records current monthly listeners, since Spotify has no history)
+
+- **Asher / Spotify** — scraped from the open.spotify.com web player (headless Chromium via Playwright), no login. Detects:
+  - Weekly streams summary (plays gained per track, monthly listeners, followers, top cities)
+  - New release (single / EP / album released this week)
+  - Stream milestones (a track or the whole catalog passing 1k, 5k, 10k, …)
+  - New all-time monthly-listener high (vs state)
+  - New Spotify genre tag (only with optional `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`)
+
+  Spotify only shows lifetime totals, so `state.json` keeps one snapshot per week and weekly numbers are the difference from the previous one. Tracks under 1,000 plays show as 0 on Spotify, so their weekly gain is unknown until they pass 1,000. Backfilling with `--week` reports current totals, not historical ones.
 
 ### Next
 

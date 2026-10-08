@@ -139,6 +139,25 @@ def seed_steg(state: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Asher — Spotify monthly-listener baseline
+# ---------------------------------------------------------------------------
+
+def seed_asher(state: dict) -> None:
+    # Spotify has no listening history to scan, so the baseline is today's
+    # monthly listeners. Weekly stream snapshots build up from pull_data.py.
+    from sources import spotify
+    logger.info("asher: scraping current Spotify stats")
+    snap = spotify.get_artist_snapshot("0mt9ovmSTm6oRJyZnr3EZS")
+    logger.info("  asher: %d monthly listeners, %d followers, %d tracks",
+                snap["monthly_listeners"], snap["followers"], len(snap["tracks"]))
+
+    asher = state.get("asher", {})
+    asher["best_monthly_listeners"] = max(
+        snap["monthly_listeners"], asher.get("best_monthly_listeners", 0))
+    state["asher"] = asher
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -154,6 +173,7 @@ def main() -> None:
     seed_jake(state)
     seed_lab(state)
     seed_steg(state)
+    seed_asher(state)
 
     if args.dry_run:
         print(json.dumps(state, indent=2))
