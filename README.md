@@ -16,7 +16,7 @@ pull_data.py  →  newsletter.py  →  send_email.py
 
 1. **Pull** — `pull_data.py` loads `friends.yaml`, calls `fetch()` on each friend's module, and writes `data/<week-start>.json`.
 2. **Format** — `newsletter.py` reads the week's accomplishments, organizes them by friend and tier, and renders HTML + plain text. Not built yet.
-3. **Send** — `send_email.py` delivers via SendGrid to the recipient list. Not built yet.
+3. **Send** — `send_email.py` delivers from theweeklyfriendship@gmail.com over Gmail SMTP to the recipient list. Delivery works (`python send_email.py --test`); hooking it up to the newsletter is not built yet.
 
 ### Layout
 
@@ -92,7 +92,9 @@ Then fill in `.env` with real credentials (see below). **Never commit `.env`** �
 STRAVA_CLIENT_ID=
 STRAVA_CLIENT_SECRET=
 STRAVA_REFRESH_TOKEN=
-SENDGRID_API_KEY=
+SENDER_EMAIL=theweeklyfriendship@gmail.com
+GMAIL_APP_PASSWORD=
+RECIPIENTS=
 ```
 
 Strava credentials are tied to a specific app registered on Steg's account with `activity:read_all` scope. They're shared out-of-band. Without them, Steg's fetch will fail gracefully and the run will continue — a missing friend produces an error log line, not a crash.
@@ -218,7 +220,7 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
 ### Next
 
 - **Newsletter formatting** — render accomplishments into HTML + plain text email, organized by friend with tier-based ordering (records → highlights → weekly facts)
-- **Email delivery** — SendGrid integration, recipient list in `.env`
+- **Email delivery** — wire `send_email.send()` to the rendered newsletter. Needs a Gmail app password for the group account (Google won't accept the regular password over SMTP; create one at myaccount.google.com/apppasswords with 2-Step Verification on) and `RECIPIENTS` as a comma-separated list
 
 ### Later
 
