@@ -58,7 +58,13 @@ def send(subject: str, text: str, html: Optional[str] = None) -> None:
         msg.add_alternative(html, subtype="html")
 
     with smtplib.SMTP_SSL(_SMTP_HOST, _SMTP_PORT, timeout=30) as smtp:
-        smtp.login(sender, password)
+        # Force AUTH LOGIN: with AUTH PLAIN, Gmail sometimes drops the
+        # connection on bad credentials instead of returning a 535.
+        smtp.ehlo()
+        smtp.user, smtp.password = sender, password
+        code, resp = smtp.auth("LOGIN", smtp.auth_login, initial_response_ok=False)
+        if code != 235:
+            raise smtplib.SMTPAuthenticationError(code, resp)
         smtp.send_message(msg)
     logger.info("Sent %r to %d recipient(s)", subject, len(recipients))
 
