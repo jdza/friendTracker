@@ -15,7 +15,7 @@ pull_data.py  →  newsletter.py  →  send_email.py
 ```
 
 1. **Pull** — `pull_data.py` loads `friends.yaml`, calls `fetch()` on each friend's module, and writes `data/<week-start>.json`.
-2. **Format** — `newsletter.py` reads the week's accomplishments, organizes them by friend and tier, and renders HTML + plain text to `data/<week-start>.html` / `.txt`.
+2. **Format** — `newsletter.py` reads the week's accomplishments, organizes them by friend and tier, and renders a short plain-text email to `data/<week-start>.txt` (default) or, with `--html`, an HTML version too.
 3. **Send** — `send_email.py` delivers from theweeklyfriendship@gmail.com over Gmail SMTP to the recipient list. Delivery works (`python send_email.py --test`); hooking it up to the newsletter is not built yet.
 
 ### Layout
@@ -137,13 +137,15 @@ Output goes to `data/<week-start>.json`. One friend failing doesn't stop the oth
 ### Newsletter
 
 ```bash
-python newsletter.py                    # render last completed week → data/<week>.html + .txt
+python newsletter.py                    # render last completed week → data/<week>.txt
 python newsletter.py --week 2026-09-28  # a specific week (pull it first)
-python newsletter.py --send             # render and email it to RECIPIENTS
+python newsletter.py --to me@gmail.com  # preview: email it to one address only
+python newsletter.py --send             # email everyone in RECIPIENTS, one at a time
+python newsletter.py --html --send      # HTML version instead (Gmail may filter it)
 python send_email.py --test             # check email delivery on its own
 ```
 
-Open the `.html` file in a browser to preview before sending.
+Preview with `--to` (or open `data/<week>.txt`) before sending to everyone.
 
 ---
 
@@ -194,7 +196,7 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
 
 - **Pull stage complete** — all four friends pulling live data each week
 
-- **Newsletter formatting** (`newsletter.py`) — HTML + plain text, one section per friend in `friends.yaml` order, items ordered Records → Highlights → The week, with links where the data has them. Subject line counts new records.
+- **Newsletter formatting** (`newsletter.py`) — plain text by default (the HTML version gets filtered by Gmail from the new group account; `--html` still renders it), one section per friend in `friends.yaml` order, items ordered Records → Highlights → The week, with links where the data has them. Subject line counts new records.
 
 - **Jake / chess.com** — public API, no auth. Detects:
   - Weekly W/L/D record per time control (rapid, blitz, bullet)
@@ -232,7 +234,7 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
 
 ### Next
 
-- **Email delivery** — `newsletter.py --send` is wired up; first real send is blocked on Google allowing SMTP for the new group account. Needs a Gmail app password for the group account (Google won't accept the regular password over SMTP; create one at myaccount.google.com/apppasswords with 2-Step Verification on) and `RECIPIENTS` as a comma-separated list
+- **Email delivery** — working: plain-text issues go out one individually addressed email per person, 15 s apart. Needs a Gmail app password for the group account (Google won't accept the regular password over SMTP; create one at myaccount.google.com/apppasswords with 2-Step Verification on) and `RECIPIENTS` as a comma-separated list
 
 ### Later
 

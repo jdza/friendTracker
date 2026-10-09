@@ -11,6 +11,10 @@ Usage:
   python newsletter.py --week 2026-09-28  # a specific week (must be a Monday)
   python newsletter.py --send             # render, then email everyone in RECIPIENTS
   python newsletter.py --to me@x.com      # render, then email one address only (preview)
+  python newsletter.py --html --send      # send the HTML version instead of plain text
+
+Plain text is the default: Gmail dropped the HTML version from the new
+group account, while the short link-free text version gets through.
 """
 
 import argparse
@@ -97,7 +101,7 @@ def _empty_note(section: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def render_plain(monday: date, sections: list[dict]) -> str:
-    """Short, link-free version that reads like a normal email (for --plain)."""
+    """Short, link-free version that reads like a normal email (the default)."""
     lines = [_INTRO, ""]
     for s in sections:
         items = [acc["summary"] for accs in s["tiers"].values() for acc in accs]
@@ -193,8 +197,8 @@ def main() -> None:
     parser.add_argument("--send", action="store_true", help="email the newsletter to everyone in RECIPIENTS")
     parser.add_argument("--to", metavar="EMAIL",
                         help="email the newsletter to this one address only (preview)")
-    parser.add_argument("--plain", action="store_true",
-                        help="send a short plain-text version with no links (gentler on spam filters)")
+    parser.add_argument("--html", action="store_true",
+                        help="send the HTML version with links (Gmail may filter it)")
     args = parser.parse_args()
 
     if args.week:
@@ -205,7 +209,7 @@ def main() -> None:
         monday = last_completed_monday()
 
     try:
-        subject, text, body_html = render(monday, plain=args.plain)
+        subject, text, body_html = render(monday, plain=not args.html)
     except FileNotFoundError as exc:
         sys.exit(str(exc))
 
