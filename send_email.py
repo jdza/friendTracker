@@ -65,8 +65,11 @@ def send(subject: str, text: str, html: Optional[str] = None) -> None:
         code, resp = smtp.auth("LOGIN", smtp.auth_login, initial_response_ok=False)
         if code != 235:
             raise smtplib.SMTPAuthenticationError(code, resp)
-        smtp.send_message(msg)
-    logger.info("Sent %r to %d recipient(s)", subject, len(recipients))
+        refused = smtp.send_message(msg)
+    if refused:
+        for addr, (code, reason) in refused.items():
+            logger.warning("Gmail refused %s: %s %s", addr, code, reason.decode(errors="replace"))
+    logger.info("Sent %r to %d recipient(s)", subject, len(recipients) - len(refused))
 
 
 def main() -> None:
