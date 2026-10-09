@@ -238,8 +238,29 @@ That's it. `pull_data.py` discovers friends dynamically from the config — no c
 
 ### Later
 
-- Weekly GitHub Actions schedule — needs Strava's rotating refresh token stored as a repo secret and updated by the workflow after each run
 - More friends
+
+---
+
+## Weekly schedule (GitHub Actions)
+
+`.github/workflows/weekly.yml` runs every Monday at 16:00 UTC (9 AM Pacific in summer): pull → send to everyone → commit `state.json`. Nobody's computer needs to be on.
+
+**One-time setup (repo owner only** — collaborators can't edit secrets on a personal repo): Settings → Secrets and variables → Actions → New repository secret, and add:
+
+| Secret | Value |
+|---|---|
+| `GMAIL_APP_PASSWORD` | the group account's 16-letter app password |
+| `RECIPIENTS` | comma-separated email list |
+| `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `STRAVA_REFRESH_TOKEN` | Steg's Strava app values |
+| `SECRETS_PAT` | a fine-grained personal access token for this repo with **Secrets: Read and write**, so the workflow can save Strava's rotated refresh token |
+
+**Running by hand:** Actions tab → Weekly newsletter → Run workflow, then pick:
+- `preview` — sends only to the group account itself; nobody else gets it
+- `send` — the real send to everyone
+- `pull` — update data and `state.json` without emailing
+
+The repo is public, so Actions logs are public too: `send_email.py` prints `recipient #N` instead of addresses when running on GitHub.
 
 ---
 

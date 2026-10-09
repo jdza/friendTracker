@@ -31,6 +31,12 @@ _SMTP_HOST = "smtp.gmail.com"
 _SMTP_PORT = 465
 _FROM_NAME = "The Friendship Weekly"
 _PAUSE_SECONDS = 15  # between individual sends; 20 people ≈ 5 minutes
+# GitHub Actions logs on a public repo are public: never print addresses there.
+_PUBLIC_LOGS = os.getenv("GITHUB_ACTIONS") == "true"
+
+
+def _who(i: int, rcpt: str) -> str:
+    return f"recipient #{i + 1}" if _PUBLIC_LOGS else rcpt
 
 
 def _config() -> tuple[str, str, list[str]]:
@@ -106,7 +112,7 @@ def send(subject: str, text: str, html: Optional[str] = None, to: Optional[list[
                 failed.append((rcpt, exc))
                 continue
             sent += 1
-            logger.info("  %d/%d sent to %s", i + 1, len(recipients), rcpt)
+            logger.info("  %d/%d sent to %s", i + 1, len(recipients), _who(i, rcpt))
     finally:
         try:
             smtp.quit()
@@ -114,7 +120,9 @@ def send(subject: str, text: str, html: Optional[str] = None, to: Optional[list[
             pass
 
     for rcpt, exc in failed:
-        logger.warning("Failed to send to %s: %s", rcpt, exc)
+        i = recipients.index(rcpt)
+        detail = type(exc).__name__ if _PUBLIC_LOGS else exc
+        logger.warning("Failed to send to %s: %s", _who(i, rcpt), detail)
     logger.info("Sent %r to %d of %d recipient(s)", subject, sent, len(recipients))
 
 

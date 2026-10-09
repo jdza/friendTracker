@@ -1,0 +1,115 @@
+# Weekly newsletter: pull last week's data, email everyone, save state.json.
+#
+# Runs every Monday at 16:00 UTC (9 AM Pacific in summer, 8 AM in winter).
+# Can also be run by hand from the Actions tab:
+#   preview  — send only to SENDER_EMAIL (the group account), nobody else
+#   send     — the full weekly send to RECIPIENTS
+#   pull     — pull data and update state.json, send nothing
+#
+# Repo secrets (Settings → Secrets and variables → Actions), set by the owner:
+#   GMAIL_APP_PASSWORD, RECIPIENTS
+#   STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_REFRESH_TOKEN
+#   SECRETS_PAT — fine-grained token with "Secrets: read and write" on this
+#                 repo, so a rotated Strava refresh token gets saved back.
+
+name: Weekly newsletter
+
+on:
+  schedule:
+    - cron: "0 16 * * 1"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "preview (group account only), send (everyone), or pull (no email)"
+        type: choice
+        options: [preview, send, pull]
+        default: preview
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-newsletter
+  cancel-in-progress: false
+
+jobs:
+  newsletter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MODE: ${{ github.event_name == 'schedule' && 'send' || inputs.mode }}
+      SENDER_EMAIL: theweeklyfriendship@gmail.com
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Write .env from secrets
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENTS: ${{ secrets.RECIPIENTS }}
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
+        run: |
+          {
+            printf 'SENDER_EMAIL=%s\n' "$SENDER_EMAIL"
+            printf 'GMAIL_APP_PASSWORD=%s\n' "$GMAIL_APP_PASSWORD"
+            printf 'RECIPIENTS=%s\n' "$RECIPIENTS"
+            printf 'STRAVA_CLIENT_ID=%s\n' "$STRAVA_CLIENT_ID"
+            printf 'STRAVA_CLIENT_SECRET=%s\n' "$STRAVA_CLIENT_SECRET"
+            printf 'STRAVA_REFRESH_TOKEN=%s\n' "$STRAVA_REFRESH_TOKEN"
+          } > .env
+
+      - name: Pull last week's data
+        run: python pull_data.py
+
+      - name: Save rotated Strava token
+        if: always()
+        env:
+          OLD_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
+          GH_TOKEN: ${{ secrets.SECRETS_PAT }}
+        run: |
+          NEW_TOKEN=$(python -c "from dotenv import dotenv_values; print(dotenv_values('.env').get('STRAVA_REFRESH_TOKEN') or '')")
+          if [ -z "$NEW_TOKEN" ] || [ "$NEW_TOKEN" = "$OLD_TOKEN" ]; then
+            echo "Strava refresh token unchanged."
+            exit 0
+          fi
+          echo "::add-mask::$NEW_TOKEN"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Strava issued a new refresh token but SECRETS_PAT isn't set, so it can't be saved. Steg's pull will fail next week until STRAVA_REFRESH_TOKEN is updated."
+            exit 0
+          fi
+          printf '%s' "$NEW_TOKEN" | gh secret set STRAVA_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY"
+          echo "Saved rotated Strava refresh token."
+
+      - name: Send preview (group account only)
+        if: env.MODE == 'preview'
+        run: python newsletter.py --to "$SENDER_EMAIL"
+
+      - name: Send to everyone
+        if: env.MODE == 'send'
+        run: python newsletter.py --send
+
+      - name: Commit state.json
+        if: success()
+        run: |
+          if git diff --quiet state.json; then
+            echo "state.json unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          git commit -m "Update state from weekly pull ($(date -u +%Y-%m-%d))"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
