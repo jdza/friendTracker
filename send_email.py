@@ -18,6 +18,7 @@ import os
 import smtplib
 import sys
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -53,6 +54,9 @@ def send(subject: str, text: str, html: Optional[str] = None) -> None:
     msg["From"] = f"{_FROM_NAME} <{sender}>"
     msg["To"] = f"{_FROM_NAME} <{sender}>"
     msg["Bcc"] = ", ".join(recipients)
+    # Missing Date / Message-ID headers are a spam signal.
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=sender.split("@", 1)[1])
     msg.set_content(text)
     if html:
         msg.add_alternative(html, subtype="html")
