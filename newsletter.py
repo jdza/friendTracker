@@ -9,7 +9,8 @@ data/<week>.txt for previewing.
 Usage:
   python newsletter.py                    # last completed week
   python newsletter.py --week 2026-09-28  # a specific week (must be a Monday)
-  python newsletter.py --send             # render, then email via send_email.py
+  python newsletter.py --send             # render, then email everyone in RECIPIENTS
+  python newsletter.py --to me@x.com      # render, then email one address only (preview)
 """
 
 import argparse
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 _DATA_DIR = Path("data")
 _TITLE = "The Friendship Weekly"
+_INTRO = "Hey all — here's what everyone got up to this week."
+# A personal intro and an easy way off the list both help with spam filters.
+_FOOTER = "You're getting this because you're one of our friends. Reply to this email if you'd rather not get it."
 
 # Tier 1 — Records, 2 — Highlights, 3 — The week. First match wins; anything
 # unlisted lands in tier 3 so a new detector never disappears from the email.
@@ -93,7 +97,7 @@ def _empty_note(section: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def render_text(monday: date, sections: list[dict]) -> str:
-    lines = [_TITLE, _week_label(monday), ""]
+    lines = [_TITLE, _week_label(monday), "", _INTRO, ""]
     for s in sections:
         lines.append(s["display_name"].upper())
         if not s["tiers"]:
@@ -105,6 +109,7 @@ def render_text(monday: date, sections: list[dict]) -> str:
                 if _link(acc):
                     lines.append(f"      {_link(acc)}")
         lines.append("")
+    lines.append(_FOOTER)
     return "\n".join(lines)
 
 
@@ -119,7 +124,8 @@ def render_html(monday: date, sections: list[dict]) -> str:
         '<div style="max-width:600px;margin:0 auto;padding:24px 16px;'
         'font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111827;">',
         f'<h1 style="margin:0;font-size:26px;">{e(_TITLE)}</h1>',
-        f'<p style="margin:4px 0 24px;color:#6b7280;font-size:14px;">{e(_week_label(monday))}</p>',
+        f'<p style="margin:4px 0 16px;color:#6b7280;font-size:14px;">{e(_week_label(monday))}</p>',
+        f'<p style="margin:0 0 20px;font-size:16px;line-height:1.5;">{e(_INTRO)}</p>',
     ]
     for s in sections:
         parts.append('<div style="background:#ffffff;border-radius:10px;padding:18px 20px;margin-bottom:16px;">')
@@ -141,7 +147,7 @@ def render_html(monday: date, sections: list[dict]) -> str:
                 parts.append(f'<li style="margin:4px 0;font-size:15px;line-height:1.45;font-weight:{weight};">{text}</li>')
             parts.append("</ul>")
         parts.append("</div>")
-    parts.append('<p style="margin:24px 0 0;color:#9ca3af;font-size:12px;">Sent by friendTracker.</p>')
+    parts.append(f'<p style="margin:24px 0 0;color:#6b7280;font-size:13px;line-height:1.5;">{e(_FOOTER)}</p>')
     parts.append("</div></body></html>")
     return "\n".join(parts)
 
@@ -168,7 +174,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--week", metavar="YYYY-MM-DD",
                         help="Monday of the week to render (default: last completed week)")
-    parser.add_argument("--send", action="store_true", help="email the newsletter to RECIPIENTS")
+    parser.add_argument("--send", action="store_true", help="email the newsletter to everyone in RECIPIENTS")
+    parser.add_argument("--to", metavar="EMAIL",
+                        help="email the newsletter to this one address only (preview)")
     args = parser.parse_args()
 
     if args.week:
@@ -188,7 +196,10 @@ def main() -> None:
     (_DATA_DIR / f"{monday.isoformat()}.txt").write_text(text, encoding="utf-8")
     logger.info("Wrote %s (subject: %s)", html_path, subject)
 
-    if args.send:
+    if args.to:
+        import send_email
+        send_email.send(subject, text, body_html, to=[args.to])
+    elif args.send:
         import send_email
         send_email.send(subject, text, body_html)
 

@@ -9,7 +9,7 @@ password for SMTP). Requires in .env:
   RECIPIENTS=a@example.com, b@example.com
 
 Usage:
-  python send_email.py --test     # send a one-line test email to RECIPIENTS
+  python send_email.py --test     # send a one-line test email to SENDER_EMAIL only
 """
 
 import argparse
@@ -45,9 +45,11 @@ def _config() -> tuple[str, str, list[str]]:
     return sender, password, recipients
 
 
-def send(subject: str, text: str, html: Optional[str] = None) -> None:
-    """Send one email to every address in RECIPIENTS (they're BCC'd to each other)."""
+def send(subject: str, text: str, html: Optional[str] = None, to: Optional[list[str]] = None) -> None:
+    """Send one email to `to`, or to every address in RECIPIENTS (BCC'd to each other)."""
     sender, password, recipients = _config()
+    if to is not None:
+        recipients = to
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -79,16 +81,19 @@ def send(subject: str, text: str, html: Optional[str] = None) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--test", action="store_true", help="send a test email to RECIPIENTS")
+    parser.add_argument("--test", action="store_true",
+                        help="send a test email to SENDER_EMAIL only (never the whole list)")
     args = parser.parse_args()
 
     if not args.test:
         sys.exit("Newsletter rendering isn't built yet — use --test to check email delivery.")
 
     try:
+        sender, _, _ = _config()
         send(
             "friendTracker test email",
             "If you're reading this, friendTracker can send email from the group account.\n",
+            to=[sender],
         )
     except smtplib.SMTPAuthenticationError as exc:
         sys.exit(f"Gmail rejected the login ({exc.smtp_code}). Check GMAIL_APP_PASSWORD in .env.")
