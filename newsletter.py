@@ -96,6 +96,20 @@ def _empty_note(section: dict) -> str:
 # Rendering
 # ---------------------------------------------------------------------------
 
+def render_plain(monday: date, sections: list[dict]) -> str:
+    """Short, link-free version that reads like a normal email (for --plain)."""
+    lines = [_INTRO, ""]
+    for s in sections:
+        items = [acc["summary"] for accs in s["tiers"].values() for acc in accs]
+        lines.append(f"{s['display_name']}:")
+        if not items:
+            items = [_empty_note(s)]
+        lines.extend(f"- {item}" for item in items)
+        lines.append("")
+    lines.append(_FOOTER)
+    return "\n".join(lines)
+
+
 def render_text(monday: date, sections: list[dict]) -> str:
     lines = [_TITLE, _week_label(monday), "", _INTRO, ""]
     for s in sections:
@@ -152,8 +166,8 @@ def render_html(monday: date, sections: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def render(monday: date) -> tuple[str, str, str]:
-    """(subject, text, html) for the week starting on monday."""
+def render(monday: date, plain: bool = False) -> tuple[str, str, str | None]:
+    """(subject, text, html) for the week starting on monday. plain=True: no HTML, no links."""
     data_path = _DATA_DIR / f"{monday.isoformat()}.json"
     if not data_path.exists():
         raise FileNotFoundError(f"{data_path} not found — run: python pull_data.py --week {monday.isoformat()}")
@@ -162,6 +176,8 @@ def render(monday: date) -> tuple[str, str, str]:
         friends = yaml.safe_load(f)["friends"]
 
     sections = build_sections(accomplishments, friends)
+    if plain:
+        return f"Friendship Weekly for {_week_label(monday)}", render_plain(monday, sections), None
     records = sum(len(s["tiers"].get(1, [])) for s in sections)
     subject = f"{_TITLE} · {_week_label(monday)}"
     if records:
@@ -177,6 +193,8 @@ def main() -> None:
     parser.add_argument("--send", action="store_true", help="email the newsletter to everyone in RECIPIENTS")
     parser.add_argument("--to", metavar="EMAIL",
                         help="email the newsletter to this one address only (preview)")
+    parser.add_argument("--plain", action="store_true",
+                        help="send a short plain-text version with no links (gentler on spam filters)")
     args = parser.parse_args()
 
     if args.week:
@@ -187,14 +205,15 @@ def main() -> None:
         monday = last_completed_monday()
 
     try:
-        subject, text, body_html = render(monday)
+        subject, text, body_html = render(monday, plain=args.plain)
     except FileNotFoundError as exc:
         sys.exit(str(exc))
 
-    html_path = _DATA_DIR / f"{monday.isoformat()}.html"
-    html_path.write_text(body_html, encoding="utf-8")
-    (_DATA_DIR / f"{monday.isoformat()}.txt").write_text(text, encoding="utf-8")
-    logger.info("Wrote %s (subject: %s)", html_path, subject)
+    txt_path = _DATA_DIR / f"{monday.isoformat()}.txt"
+    txt_path.write_text(text, encoding="utf-8")
+    if body_html:
+        (_DATA_DIR / f"{monday.isoformat()}.html").write_text(body_html, encoding="utf-8")
+    logger.info("Wrote %s (subject: %s)", txt_path, subject)
 
     if args.to:
         import send_email
